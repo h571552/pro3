@@ -140,6 +140,8 @@ public class FileManager extends Thread {
 			// choose any available node
 			Message msg = msgArray[0];
 			
+			msg.setOptype(OperationType.READ);
+			
 			//locate the registry and see if the node is still active by retrieving its remote object
 			Registry registry = Util.locateRegistry(msg.getNodeIP());
 			ChordNodeInterface node = null;
@@ -149,7 +151,7 @@ public class FileManager extends Thread {
 			if(node != null) {
 				
 				// build the operation to be performed - Read and request for votes in existing active node message
-				node.onReceivedUpdateOperation(msg);
+				//node.onReceivedUpdateOperation(msg);
 				
 				// set the active nodes holding replica files in the contact node (setActiveNodesForFile)
 				node.setActiveNodesForFile(set);
@@ -167,7 +169,8 @@ public class FileManager extends Thread {
 				node.multicastVotersDecision(msg);
 				
 				// if majority votes
-				if(node.majorityAcknowledged()) {
+				answer = node.majorityAcknowledged();
+				if(answer) {
 					
 					// acquire lock to CS and also increments localclock
 					node.acquireLock();
@@ -184,10 +187,11 @@ public class FileManager extends Thread {
 		// optional: retrieve content of file on local resource
 		
 		// send message to let replicas release read lock they are holding
-		
-		// release locks after operations
+		node.multicastUpdateOrReadReleaseLockOperation(msg);
 			
-			node.releaseLocks();
+		// release locks after operations
+		node.releaseLocks();
+			
 		}
 			
 		return answer;		// change to your final answer
@@ -205,6 +209,8 @@ public class FileManager extends Thread {
 		// choose any available node
 		Message msg = msgArray[0];
 		
+		msg.setOptype(OperationType.WRITE);
+		
 		// locate the registry and see if the node is still active by retrieving its remote object
 		Registry registry = Util.locateRegistry(msg.getNodeIP());
 		ChordNodeInterface node = null;
@@ -213,7 +219,7 @@ public class FileManager extends Thread {
 		if(node != null) {
 		
 			// build the operation to be performed - Read and request for votes in existing active node message
-			node.onReceivedUpdateOperation(msg);
+			//node.onReceivedUpdateOperation(msg);
 			
 			// set the active nodes holding replica files in the contact node (setActiveNodesForFile)
 			node.setActiveNodesForFile(set);
@@ -222,7 +228,7 @@ public class FileManager extends Thread {
 			msg.setNodeIP(node.getNodeIP());
 			
 			// send a request to a node and get the voters decision
-			boolean ack = node.requestReadOperation(msg);
+			boolean ack = node.requestWriteOperation(msg);
 			
 			// put the decision back in the message
 			msg.setAcknowledged(ack);
@@ -231,8 +237,13 @@ public class FileManager extends Thread {
 			node.multicastVotersDecision(msg);
 			
 			// if majority votes
-			if(node.majorityAcknowledged()) {
+			answer = node.majorityAcknowledged();
+			if(answer) {
 		
+				for(Message m : msgArray) {
+					m.setNewcontent(newcontent);
+				}
+				
 				// acquire lock to CS and also increments localclock
 				node.acquireLock();
 				node.incrementclock();
@@ -242,8 +253,8 @@ public class FileManager extends Thread {
 				op.performOperation();
 				
 				// update replicas and let replicas release CS lock they are holding	
-				op.multicastOperationToReplicas(msg);
-				op.multicastReadReleaseLocks();
+				node.multicastUpdateOrReadReleaseLockOperation(msg);
+				
 			}
 		
 			// release locks after operations

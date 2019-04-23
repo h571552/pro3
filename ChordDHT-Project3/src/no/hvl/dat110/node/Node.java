@@ -27,6 +27,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
+import no.hvl.dat110.mutexprocess.OperationType;
+import no.hvl.dat110.mutexprocess.Operations;
 /*
 import no.hvl.dat110.interfaces.ProcessInterface;
 import no.hvl.dat110.mutexprocess.Message;
@@ -283,6 +285,8 @@ public class Node extends UnicastRemoteObject implements ChordNodeInterface {
 	public void releaseLocks() throws RemoteException {
 		CS_BUSY = false;
 		WANTS_TO_ENTER_CS = false;
+		
+		incrementclock();
 	}
 	
 	@Override
@@ -340,7 +344,7 @@ public class Node extends UnicastRemoteObject implements ChordNodeInterface {
 
 		counter++;
 		
-		if(!CS_BUSY) {
+		if(!CS_BUSY && !WANTS_TO_ENTER_CS) {
 		/**
 		 *  case 1: Receiver is not accessing shared resource and does not want to: GRANT, acquirelock and reply
 		 */
@@ -366,10 +370,15 @@ public class Node extends UnicastRemoteObject implements ChordNodeInterface {
 		else if(WANTS_TO_ENTER_CS) {
 			
 			//case 3
-			if(counter < message.getClock()) {
+			if(message.getClock() < counter) {
 			
 				message.setAcknowledged(true);
 				acquireLock();
+				return message;
+			}
+			else {
+				
+				message.setAcknowledged(false);
 				return message;
 			}
 		}
@@ -391,6 +400,8 @@ public class Node extends UnicastRemoteObject implements ChordNodeInterface {
 				i++;
 		}
 				
+		queueACK.clear();
+		
 		return i >= quorum;		// change this to the result of the vote
 	}
 
@@ -434,12 +445,13 @@ public class Node extends UnicastRemoteObject implements ChordNodeInterface {
 		// if this is a write operation, multicast the update to the rest of the replicas (voters)
 		// otherwise if this is a READ operation multicast releaselocks to the replicas (voters)
 		
-		synchronized(queueACK) {
+		Operations o = new Operations(this, message, activenodesforfile);
 			
-		Registry registry = Util.tryIPs();
+		//Registry registry = Util.tryIPs();
 			
 		if(message.getOptype() == OperationType.WRITE) {
 			
+			/*
 			for(Message replica : activenodesforfile) {
 				
 				try {
@@ -452,9 +464,12 @@ public class Node extends UnicastRemoteObject implements ChordNodeInterface {
 					e.printStackTrace();
 				}
 				
-			}
+			}*/
+			
+			o.multicastOperationToReplicas(message);
 			
 		} else {
+			/*
 			
 				for(Message replica : activenodesforfile) {
 					try {
@@ -464,16 +479,29 @@ public class Node extends UnicastRemoteObject implements ChordNodeInterface {
 						// TODO Auto-generated catch block
 						e.printStackTrace();
 				}
-			}
-			}
+			}*/
+			o.multicastReadReleaseLocks();
 		}
+
 	}	
 	
 	@Override
 	public void multicastVotersDecision(Message message) throws RemoteException {	
 		
 		// multicast voters decision to the rest of the replicas (i.e activenodesforfile)
-		multicastMessage(message);
+		
+		ChordNodeInterface n = this.successor;
+		quorum = (activenodesforfile.size()/2) + 1;
+		
+
+		for(int i = 0; i < quorum; i++) {
+			
+			n = n.getSuccessor();
+			n.onReceivedVotersDecision(message);
+			
+		}
+		
+
 	}
 
 }
