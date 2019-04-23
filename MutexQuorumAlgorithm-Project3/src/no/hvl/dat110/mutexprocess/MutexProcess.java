@@ -183,7 +183,7 @@ public class MutexProcess extends UnicastRemoteObject implements ProcessInterfac
 
 		counter++;
 		
-		if(!CS_BUSY) {
+		if(!CS_BUSY && !WANTS_TO_ENTER_CS) {
 		/**
 		 *  case 1: Receiver is not accessing shared resource and does not want to: GRANT, acquirelock and reply
 		 */
@@ -209,10 +209,15 @@ public class MutexProcess extends UnicastRemoteObject implements ProcessInterfac
 		else if(WANTS_TO_ENTER_CS) {
 			
 			//case 3
-			if(counter < message.getClock()) {
+			if(message.getClock() < counter) {
 			
 				message.setAcknowledged(true);
 				acquireLock();
+				return message;
+			}
+			else {
+				
+				message.setAcknowledged(false);
 				return message;
 			}
 		}
@@ -232,6 +237,8 @@ public class MutexProcess extends UnicastRemoteObject implements ProcessInterfac
 			if(m.isAcknowledged())
 				i++;
 		}
+		
+		queueACK.clear();
 				
 		return i >= quorum;			// change this to the result of the vote
 	}
@@ -272,9 +279,11 @@ public class MutexProcess extends UnicastRemoteObject implements ProcessInterfac
 		// if this is a write operation, multicast the update to the rest of the replicas (voters)
 		// otherwise if this is a READ operation multicast releaselocks to the replicas (voters)
 		
-		synchronized(queueACK) {
+		Operations o = new Operations(this, message);
+		
 		if(message.getOptype() == OperationType.WRITE) {
 			
+			/*
 			for(String replica : replicas) {
 				
 				try {
@@ -285,9 +294,13 @@ public class MutexProcess extends UnicastRemoteObject implements ProcessInterfac
 					e.printStackTrace();
 				}
 				
-			}
+			}*/
+			
+			o.multicastOperationToReplicas(message);
 			
 		} else {
+			
+			/*
 			
 				for(String replica : replicas) {
 					try {
@@ -297,9 +310,11 @@ public class MutexProcess extends UnicastRemoteObject implements ProcessInterfac
 						// TODO Auto-generated catch block
 						e.printStackTrace();
 				}
-			}
-			}
+			}*/
+				
+			o.multicastReadReleaseLocks();
 		}
+		
 		
 	}	
 	
@@ -307,7 +322,22 @@ public class MutexProcess extends UnicastRemoteObject implements ProcessInterfac
 	public void multicastVotersDecision(Message message) throws RemoteException {	
 		// multicast voters decision to the rest of the replicas 
 		
-		multicastMessage(message, replicas.size());
+		for(int i = 0; i < quorum; i++) {
+			
+			try {
+				
+				// do something with the acknowledgement you received from the voters - Idea: use the queueACK to collect GRANT/DENY messages and make sure queueACK is synchronized!!!
+				ProcessInterface pi = Util.registryHandle(replicas.get(i));
+				pi.onReceivedVotersDecision(message);
+				
+			} catch (NotBoundException e) {
+				// TODO Auto-generated catch block
+				e.printStackTrace();
+			}
+			
+		}
+		
+		
 	}
 
 	@Override
